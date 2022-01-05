@@ -1,5 +1,5 @@
-from dotenv import load_dotenv
-load_dotenv()
+# from dotenv import load_dotenv
+# load_dotenv()
 import os
 import requests
 from requests.exceptions import ConnectionError, Timeout, TooManyRedirects
@@ -11,8 +11,7 @@ import pytz
 # MAIN FUNCTION: QUERIES API.KRAKEN.COM/0/PUBLIC TO
 # RETRIEVE RECENT TRADES DATA AND PASTE INTO SNOWFLAKE.
 
-# def main(event, context):
-def main():
+def main(event, context):
 
     print("Starting the update run.")
 
@@ -20,15 +19,20 @@ def main():
     user = os.environ.get('SNOWFLAKE-USER')
     account = os.environ.get('SNOWFLAKE-ACCOUNT')
     password = os.environ.get('SNOWFLAKE-PW')
-    print(user, account, password)
 
-    # pairs = ['ETHCHF','XETHZEUR', 'ADAEUR', 'DOTEUR', 'SOLEUR']
-    pairs = ['XXBTZEUR']
+    # other pairs: pairs = ['ETHCHF','XETHZEUR', 'ADAEUR', 'DOTEUR', 'SOLEUR']
+    pairs = ['XXBTZEUR','XETHZEUR']
+    responses = []
 
     # Get data from Kraken
     try:
         for p in pairs:
             response = requests.get(f'https://api.kraken.com/0/public/Trades?pair={p}')
+            result = {
+                "pair": p,
+                "response": response.text
+            }
+            responses.append(result)
             json_data = json.loads(response.text)
             print(json_data['error'])     
     # Catch error if any
@@ -46,11 +50,19 @@ def main():
         con.cursor().execute("USE WAREHOUSE SNOWFLAKE_WH")
         con.cursor().execute("USE DATABASE DAGOBERT_DB")
         con.cursor().execute("USE SCHEMA DAGOBERT_DB.KRAKEN_SCHEMA")
+        # Preparing the insert statement for Snowflake
+        insert_statement = ""
+        for r, val in enumerate(responses):
+            if (r+1) == len(responses):
+                insert_values = "('" + datetime.datetime.now(pytz.timezone('Europe/Zurich')).strftime("%x %X") + "', '" + str(val['response']) + "')"
+            else:
+                insert_values = "('" + datetime.datetime.now(pytz.timezone('Europe/Zurich')).strftime("%x %X") + "', '" + str(val['response']) + "'),"
+            insert_statement = insert_statement + insert_values
+        # Execute insert statement
         con.cursor().execute(
-            "INSERT INTO STAGE_KRAKEN_RECENT_TRENDS(TIMESTAMP, RESPONSE) VALUES " +
-            "('" + datetime.datetime.now(pytz.timezone('Europe/Zurich')).strftime("%x %X") + "', '"
-            + response.text + "')"
-        )
+            "INSERT INTO KRAKEN_TEST(TIMESTAMP, RESPONSE) VALUES "
+            + insert_statement)
+
     except snowflake.connector.errors.ProgrammingError as e:
         # Default error message
         print(e)
